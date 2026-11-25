@@ -48,6 +48,19 @@ export default function DetectorWorkbench({
     setAllowDemoFallback(false);
   };
 
+  const parseApiResponse = async (response: Response) => {
+    const rawText = await response.text();
+    let data: Record<string, unknown> = {};
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText) as Record<string, unknown>;
+      } catch {
+        data = {};
+      }
+    }
+    return { rawText, data };
+  };
+
   const runAiAnalysis = async (params: {
     text: string;
     title?: string;
@@ -65,25 +78,40 @@ export default function DetectorWorkbench({
       }),
     });
 
-    const data = await response.json().catch(() => ({}));
+    const { rawText, data } = await parseApiResponse(response);
     if (!response.ok) {
-      if (data.code === "AI_KEY_MISSING" || data.code === "AI_AUTH_ERROR" || response.status >= 500) {
+      const code = typeof data.code === "string" ? data.code : "";
+      if (code === "AI_KEY_MISSING" || code === "AI_AUTH_ERROR" || response.status >= 500) {
         setAllowDemoFallback(true);
       }
-      throw new Error(data.error || "Unable to complete AI analysis.");
+      const serverMsg =
+        typeof data.error === "string" && data.error.trim()
+          ? data.error
+          : `Request failed with HTTP ${response.status}${
+              rawText ? `: ${rawText.slice(0, 160)}` : ""
+            }`;
+      throw new Error(serverMsg);
+    }
+
+    if (typeof data.verdict !== "string") {
+      throw new Error("Server returned an unexpected response format from /api/analyze.");
     }
 
     const report: AnalysisReport = {
       id: `rep_${Date.now()}`,
-      title: data.inferredTitle || params.title || "Analyzed News Article",
+      title:
+        (typeof data.inferredTitle === "string" && data.inferredTitle) ||
+        params.title ||
+        "Analyzed News Article",
       text: params.text,
       sourceUrl: params.sourceUrl,
       sourceDomain: params.sourceDomain,
-      verdict: data.verdict,
+      verdict: data.verdict as AnalysisReport["verdict"],
       confidence: Math.round(Number(data.confidence) || 0),
       realScore: Math.round(Number(data.realScore) || 0),
       fakeScore: Math.round(Number(data.fakeScore) || 0),
-      summaryExplanation: data.summaryExplanation || "",
+      summaryExplanation:
+        typeof data.summaryExplanation === "string" ? data.summaryExplanation : "",
       indicators: Array.isArray(data.indicators) ? data.indicators : [],
       suspiciousSentences: Array.isArray(data.suspiciousSentences)
         ? data.suspiciousSentences
@@ -116,23 +144,36 @@ export default function DetectorWorkbench({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: trimmedUrl }),
         });
-        const extractData = await extractRes.json().catch(() => ({}));
+        const { rawText, data: extractData } = await parseApiResponse(extractRes);
         if (!extractRes.ok) {
-          throw new Error(
-            extractData.error || "Could not extract article text from this URL."
-          );
+          const extractErr =
+            typeof extractData.error === "string" && extractData.error.trim()
+              ? extractData.error
+              : `URL extraction failed with HTTP ${extractRes.status}${
+                  rawText ? `: ${rawText.slice(0, 160)}` : ""
+                }`;
+          throw new Error(extractErr);
         }
 
-        setTitleInput(extractData.title || "");
-        setTextInput(extractData.text || "");
-        setExtractedDomain(extractData.domain);
-        setExtractedUrl(extractData.url);
+        const extractedTitle =
+          typeof extractData.title === "string" ? extractData.title : "";
+        const extractedText =
+          typeof extractData.text === "string" ? extractData.text : "";
+        const extractedDom =
+          typeof extractData.domain === "string" ? extractData.domain : undefined;
+        const extractedLink =
+          typeof extractData.url === "string" ? extractData.url : undefined;
+
+        setTitleInput(extractedTitle);
+        setTextInput(extractedText);
+        setExtractedDomain(extractedDom);
+        setExtractedUrl(extractedLink);
 
         await runAiAnalysis({
-          text: extractData.text,
-          title: extractData.title,
-          sourceUrl: extractData.url,
-          sourceDomain: extractData.domain,
+          text: extractedText,
+          title: extractedTitle,
+          sourceUrl: extractedLink,
+          sourceDomain: extractedDom,
         });
       } catch (err) {
         setErrorMsg(

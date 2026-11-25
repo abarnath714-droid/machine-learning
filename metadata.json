@@ -1,0 +1,6 @@
+{
+  "name": "VeritasLens — AI Fake News Detection",
+  "description": "AI-powered news verification platform that analyzes articles and URLs to classify reporting as Real, Fake, or Suspicious with sentence-level explanations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
